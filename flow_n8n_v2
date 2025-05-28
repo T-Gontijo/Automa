@@ -1,0 +1,315 @@
+{
+  "name": "Despesas e Cadastro de Usuários",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ]
+      },
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{TELEGRAM_CRED}}"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": [
+          {
+            "ruleType": "json",
+            "json": "={{ $json[\"message\"][\"text\"] !== undefined }}",
+            "output": 0
+          },
+          {
+            "ruleType": "json",
+            "json": "={{ $json[\"message\"][\"voice\"] !== undefined }}",
+            "output": 1
+          },
+          {
+            "ruleType": "json",
+            "json": "={{ $json[\"message\"][\"photo\"] !== undefined }}",
+            "output": 2
+          }
+        ]
+      },
+      "name": "Switch",
+      "type": "n8n-nodes-base.switch",
+      "position": [
+        300,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": "whisper-1",
+        "input": "={{ $json[\"message\"][\"voice\"][\"file_id\"] }}"
+      },
+      "name": "Transcrição de Áudio",
+      "type": "n8n-nodes-base.openaiWhisper",
+      "position": [
+        600,
+        100
+      ],
+      "credentials": {
+        "openaiWhisper": {
+          "id": "{{WHISPER_CRED}}"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentType": "receipt",
+        "input": "={{ $json[\"message\"][\"photo\"][0][\"file_id\"] }}"
+      },
+      "name": "OCR Recibo",
+      "type": "n8n-nodes-base.mindee",
+      "position": [
+        600,
+        -100
+      ],
+      "credentials": {
+        "mindeeApi": {
+          "id": "{{OCR_CRED}}"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "input": "={{ $node[\"Transcrição de Áudio\"].json[\"text\"] || $node[\"OCR Recibo\"].json[\"text\"] || $json[\"message\"][\"text\"] }}",
+        "outputKeys": [
+          "valor",
+          "categoria",
+          "data"
+        ]
+      },
+      "name": "IA – Extrair Despesa",
+      "type": "n8n-nodes-base.aiAgentTools",
+      "position": [
+        900,
+        0
+      ],
+      "credentials": {
+        "googleAiApi": {
+          "id": "{{GEMINI_CRED}}"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetName": "Expenses",
+        "columns": [
+          "Data",
+          "Categoria",
+          "Valor",
+          "TipoEntrada",
+          "Observação"
+        ],
+        "valueInputMode": "RAW",
+        "range": "Expenses!A:E"
+      },
+      "name": "Adicionar Despesa",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        1200,
+        0
+      ],
+      "credentials": {
+        "googleSheets": {
+          "id": "{{GSHEETS_CRED}}"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json[\"message\"][\"chat\"][\"id\"] }}",
+        "text": "Despesa registrada: valor {{ $json[\"valor\"] }} em {{ $json[\"categoria\"] }}."
+      },
+      "name": "Confirmar Despesa",
+      "type": "n8n-nodes-base.telegram",
+      "position": [
+        1500,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{TELEGRAM_CRED}}"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": [
+          {
+            "name": "userId",
+            "value": "={{ $json[\"message\"][\"from\"][\"id\"] }}"
+          },
+          {
+            "name": "firstName",
+            "value": "={{ $json[\"message\"][\"from\"][\"first_name\"] }}"
+          },
+          {
+            "name": "lastName",
+            "value": "={{ $json[\"message\"][\"from\"][\"last_name\"] }}"
+          },
+          {
+            "name": "username",
+            "value": "={{ $json[\"message\"][\"from\"][\"username\"] }}"
+          },
+          {
+            "name": "languageCode",
+            "value": "={{ $json[\"message\"][\"from\"][\"language_code\"] }}"
+          },
+          {
+            "name": "phoneNumber",
+            "value": "={{ $json[\"message\"][\"from\"][\"phone_number\"] }}"
+          }
+        ]
+      },
+      "name": "Preparar Dados de Usuário",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        300,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetName": "Users",
+        "columns": [
+          "userId",
+          "firstName",
+          "lastName",
+          "username",
+          "languageCode",
+          "phoneNumber"
+        ],
+        "valueInputMode": "RAW",
+        "range": "Users!A:F"
+      },
+      "name": "Registrar Usuário",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        600,
+        200
+      ],
+      "credentials": {
+        "googleSheets": {
+          "id": "{{GSHEETS_CRED}}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Preparar Dados de Usuário",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "IA – Extrair Despesa",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Transcrição de Áudio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "OCR Recibo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcrição de Áudio": {
+      "main": [
+        [
+          {
+            "node": "IA – Extrair Despesa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Recibo": {
+      "main": [
+        [
+          {
+            "node": "IA – Extrair Despesa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA – Extrair Despesa": {
+      "main": [
+        [
+          {
+            "node": "Adicionar Despesa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adicionar Despesa": {
+      "main": [
+        [
+          {
+            "node": "Confirmar Despesa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Dados de Usuário": {
+      "main": [
+        [
+          {
+            "node": "Registrar Usuário",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "America/Sao_Paulo",
+    "saveManualExecutions": true,
+    "saveDataOnError": "all"
+  },
+  "pinData": {}
+}
